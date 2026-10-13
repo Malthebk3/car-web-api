@@ -24,6 +24,12 @@ let USER_NAME = 'Default VSCode User';
 let CarArray = [];
 let CarElevvisning;
 
+let nextCarId = 1; // Start ID for nye biler
+let editingCarId = null; // ID for den bil, der redigeres
+let tableEditingRow = null; 
+let addButton;
+let cancelButton;
+
 class FormField {
     constructor(id, defaultValue) {
         this.id = id;
@@ -64,7 +70,7 @@ class Car
 {
     static numberOfCarObjectsDefinedOnClass = 0;
 
-    constructor(objectType, carId, carName, carYear, carPrice)
+    constructor(objectType,carId, carName, carYear, carPrice)
     {
         this.carName = carName;
         this.carYear = carYear;
@@ -238,9 +244,40 @@ async function addItem(dataObject) {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        // SignalR vil opdatere UI på alle klienter
+        DisplayTableDataFromWebApi();
     } catch (error) {
         console.error("Fejl ved tilføjelse af data:", error);
+    }
+}
+
+async function updateItem(carId, dataObject) {
+    const params = new URLSearchParams({ userName: USER_NAME });
+    const url = `${API_URL}/${carId}?${params.toString()}`;
+    const typedObject = {};
+
+    if ('undefined' !== typeof dataObject.carModel)
+    {
+        typedObject.$type = "carModel";
+    }
+    else
+    {
+        typedObject.$type = "car";
+    }
+
+    Object.assign(typedObject, dataObject);
+
+    try {
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(typedObject)
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        DisplayTableDataFromWebApi();
+    } catch (error) {
+        console.error("Fejl ved opdatering af data:", error);
     }
 }
 
@@ -255,7 +292,7 @@ async function deleteItem(carId) {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        // SignalR vil opdatere UI på alle klienter
+        DisplayTableDataFromWebApi();
     } catch (error) {
         console.error("Fejl ved sletning af data:", error);
     }
@@ -299,74 +336,27 @@ function AddNewCarOrCarModel(event)
         carPrice: FormFields.CarPrice.getValue(),
     };
 
+    if (lastFieldValue !== textBoxEmptyString)
+    {
+        formDataObject.carModel = lastFieldValue;
+    }
+
     if (editingCarId !== null) 
     {
         // REDIGERINGS-TILSTAND
         const carIndex = CarArray.findIndex(car => car.carId === editingCarId);
         if (carIndex !== -1) 
         {
-            const existingCar = CarArray[carIndex];
-
-            formDataObject.CarId = editingCarId;
-            
-            if (lastFieldValue && !(existingCar instanceof CarModel)) 
-            {
-                // Her gemmer vi det eksisterende CarId og opretter et nyt CarModel objekt med dette CarId
-                // Det gamle objekt på pladsen var et Car objekt.
-                //formDataObject.carModel = FormFields.CarModel.getValue();
-                formDataObject.carModel = lastFieldValue;
-                CarArray[carIndex] = new CarModel(formDataObject);
-                CarModel.decreaseNumberOfCarModelObjects();
-            } else if (!lastFieldValue && existingCar instanceof CarModel)
-            {
-                // Her gemmer vi det eksisterende ID og opretter et nyt Car objekt med dette CarId
-                // Det gamle objekt på pladsen var et CarModel objekt.
-                CarArray[carIndex] = new Car(formDataObject);
-                Car.decreaseNumberOfCarObjects();
-            } else 
-            {
-                if (existingCar instanceof CarModel)
-                {
-                    formDataObject.carModel = lastFieldValue;
-                    existingCar.copyEditedDataToSpecifiedCarModelObject(formDataObject);
-                }
-                else 
-                {
-                    existingCar.copyEditedDataToSpecifiedCarObject(formDataObject);
-                }
-            }
-
-            const tableEditingRow = tableBody.querySelector(`[data-id='${editingCarId}']`);
-            if (tableEditingRow)
-            {
-                tableEditingRow.cells[0].textContent = existingCar.carName;
-                tableEditingRow.cells[1].textContent = existingCar.carYear;
-                tableEditingRow.cells[2].textContent = existingCar.carAge();
-                tableEditingRow.cells[3].textContent = existingCar.carPrice;
-                tableEditingRow.cells[4].textContent = existingCar.carModel;
-            }
+            formDataObject.carId = editingCarId;
+            updateItem(editingCarId, formDataObject);
         }
-        UpdateObjectCounterTags();
         resetEditingState();
     } 
     else 
     {
-        // OPRETTELSES-TILSTAND
-        let carToAdd;
-        formDataObject.carId = nextCarId++;
-
-        // 3. Tjek det sidste felts indhold og kald den relevante funktion
-        if (lastFieldValue === textBoxEmptyString)
-        {
-            carToAdd = new Car(formDataObject);
-        } 
-        else 
-        {
-            formDataObject.carModel = FormFields.CarModel.getValue();
-            carToAdd = new CarModel(formDataObject);
-        }
-        addItem(carToAdd);
+        addItem(formDataObject);
     }
+    ClearTextFields();
 }
 
 function AddDataToTable(carObject)
@@ -439,7 +429,6 @@ function AddDataToTable(carObject)
         cancelButton.style.display = 'inline-block'; // Vis annuller-knappen
 
         const rowId = parseInt(newRow.getAttribute('data-id'));
-        const carToEdit = CarArray.find(car => car.carId === rowId);
         
         editingCarId = rowId;
 
@@ -500,7 +489,10 @@ function UpdateObjectCounterTags()
 
 async function DisplayTableDataFromWebApi()
 {
-    // Hent data fra Web API'et og opdater tabellen
+    Car.numberOfCarObjectsDefinedOnClass = 0;
+    CarModel.numberOfCarModelObjectsDefinedOnClass = 0;
+    CarArray = []; // Ryd CarArray før hentning af data
+    document.getElementById('data-table-body').innerHTML = ''; // Ryd tabellen før hentning af data
     await getItems();
 
     CarArray.forEach(Car => {
@@ -528,15 +520,26 @@ export function init_javaScriptCarWebAPi()
         ForklaringCell.textContent = raekke[2];
     }
 
+    const currentYear = new Date().getFullYear();
+    const carYearMin = 1990;
+    txtCarYear.setAttribute('type', 'number'); 
+    txtCarYear.setAttribute('max', currentYear);
+    txtCarYear.setAttribute('min', carYearMin); 
+
+    const priceMin = 10000;
+    txtCarPrice.setAttribute('type', 'number');
+    txtCarPrice.setAttribute('step', 1000);
+    txtCarPrice.setAttribute('min', priceMin);
+
     const UserNameInput = document.getElementById('user-name');
     UserNameInput.value =LoadUserNameFromLocalStorage();
 
     document.getElementById('btnAddCar').addEventListener('click', AddNewCarOrCarModel);
-    const addButton = document.getElementById('btnAddCar');
+    addButton = document.getElementById('btnAddCar');
 
     // Få fat i den nye annuller-knap
     document.getElementById('cancel-button').addEventListener('click', resetEditingState);
-    const cancelButton = document.getElementById('cancel-button');
+    cancelButton = document.getElementById('cancel-button');
 
     document.getElementById('btnClearTextFields').addEventListener('click', ClearTextFields);
 
