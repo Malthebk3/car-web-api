@@ -146,6 +146,7 @@ const classMap = {
 
 function SaveUserNameToLocalStorage()
 {
+    USER_NAME = document.getElementById('user-name').value.trim();
     localStorage.setItem('USER_NAME', JSON.stringify(USER_NAME));
 }
 
@@ -531,6 +532,7 @@ export function init_javaScriptCarWebAPi()
     txtCarPrice.setAttribute('step', 1000);
     txtCarPrice.setAttribute('min', priceMin);
 
+    document.getElementById('btnUserName').addEventListener('click', SaveUserNameToLocalStorage);
     const UserNameInput = document.getElementById('user-name');
     UserNameInput.value =LoadUserNameFromLocalStorage();
 
